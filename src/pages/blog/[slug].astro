@@ -1,0 +1,43 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const path = `/blog/${post.id}/`;
+const url = `https://imranemon.tech${path}`;
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.pubDate.toISOString(),
+  dateModified: (post.data.updated ?? post.data.pubDate).toISOString(),
+  keywords: post.data.tags.join(', '),
+  url,
+  mainEntityOfPage: url,
+  author: {
+    '@type': 'Person',
+    name: 'Imran Emon',
+    url: 'https://imranemon.tech'
+  }
+};
+---
+<Base title={`${post.data.title} — imranemon.tech`} description={post.data.description} path={path}>
+  <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  <article class="article">
+    <a class="back-link" href="/blog">← All posts</a>
+    <h1>{post.data.title}</h1>
+    <p class="meta">
+      {post.data.pubDate.toISOString().slice(0, 10)}
+      {post.data.updated && ` · updated ${post.data.updated.toISOString().slice(0, 10)}`}
+      {post.data.tags.map((t) => ` · ${t}`)}
+    </p>
+    <Content />
+  </article>
+</Base>

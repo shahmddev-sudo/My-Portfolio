@@ -1,0 +1,30 @@
+# imranemon.tech
+
+> Blog and portfolio of Imran Emon, a .NET and cloud infrastructure engineer.
+> Posts are drawn from real production work — shipped systems, real incidents, and the fixes that followed.
+
+## About
+
+Imran Emon builds .NET backends and the infrastructure they run on: EF Core and
+Hangfire inside the application; Docker, Kubernetes, Helm, and Terraform
+underneath it; AWS/Azure/GCP around it. Currently building VettifyNG, a legal
+case management SaaS at https://app.vettify.site.
+
+## Blog
+
+Posts are plain markdown, published at /blog/<slug>/. Full text is open for
+reading, indexing, and citation by both humans and AI agents. An RSS feed is
+available at /rss.xml.
+
+Topics: .NET, C#, ASP.NET Core, EF Core, PostgreSQL, Docker, Kubernetes, Helm,
+Terraform, CI/CD, GitHub Actions, cloud (AWS/Azure/GCP), production incidents,
+VPS hardening, and SaaS architecture.
+
+## Projects
+
+- VettifyNG — legal case management SaaS (4 portals, .NET 10, PostgreSQL, Docker): https://app.vettify.site
+
+## Links
+
+- Source for this site: https://github.com/shahmddev-sudo/My-Portfolio
+- RSS: https://imranemon.tech/rss.xml

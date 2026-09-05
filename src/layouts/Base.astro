@@ -1,0 +1,33 @@
+---
+import SEO from '../components/SEO.astro';
+const { title, description, path = '/' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <SEO title={title} description={description} path={path} />
+    <link rel="alternate" type="application/rss+xml" title="imranemon.tech" href="/rss.xml" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav>
+        <a href="/" class="brand">imranemon<b>.tech</b></a>
+        <div class="nav-links">
+          <a href="/blog">Blog</a>
+          <a href="/projects">Projects</a>
+          <a href="/rss.xml">RSS</a>
+        </div>
+      </nav>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <p>© {new Date().getFullYear()} Imran Emon · Built with Astro, hosted on GitHub Pages · <a href="https://github.com/shahmddev-sudo/My-Portfolio">Source</a></p>
+    </footer>
+  </body>
+</html>

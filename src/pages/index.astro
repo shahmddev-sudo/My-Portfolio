@@ -1,0 +1,63 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const recent = posts.slice(0, 5);
+---
+<Base title="Imran Emon — .NET & Cloud Engineer" description="Imran Emon builds .NET backends and cloud infrastructure. Blog on .NET, DevOps, Kubernetes, and lessons from real production systems.">
+  <section class="hero">
+    <p class="kicker">.NET · Cloud · DevOps</p>
+    <h1>Hi, I'm Imran Emon.</h1>
+    <p>
+      I build production .NET backends and the infrastructure they run on —
+      from EF Core and Hangfire inside the application, to Docker, Kubernetes
+      and Terraform underneath it. Most of what I write here comes from real
+      systems I shipped and real incidents that taught me something.
+    </p>
+    <p>
+      Currently building <a href="https://app.vettify.site">VettifyNG</a>,
+      a legal case management SaaS serving four portals from a single
+      .NET 10 API.
+    </p>
+  </section>
+
+  <section class="section">
+    <h2>Recent posts</h2>
+    <ul class="post-list">
+      {recent.map((post) => (
+        <li>
+          <span class="p-date">{post.data.pubDate.toISOString().slice(0, 10)}</span>
+          <h3><a href={`/blog/${post.id}/`}>{post.data.title}</a></h3>
+          <p class="p-desc">{post.data.description}</p>
+          {post.data.tags.map((t) => <span class="tag">{t}</span>)}
+        </li>
+      ))}
+    </ul>
+    <p><a href="/blog">All posts →</a></p>
+  </section>
+
+  <section class="section">
+    <h2>Things I work with</h2>
+    <div class="skills-grid">
+      {['.NET / C#', 'EF Core', 'ASP.NET Core', 'React', 'Angular', 'TypeScript', 'Docker', 'Kubernetes', 'Helm', 'Terraform', 'AWS', 'Azure', 'GCP', 'PostgreSQL', 'Redis', 'Hangfire', 'CI/CD', 'GitHub Actions'].map((s) => <span class="skill">{s}</span>)}
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Projects</h2>
+    <div class="project-card">
+      <h3><a href="https://app.vettify.site">VettifyNG</a></h3>
+      <div class="p-meta">.NET 10 · PostgreSQL · Docker · SaaS</div>
+      <p>
+        Legal case management SaaS — four portals (user, lawyer, corporate, admin)
+        on one API. Case intake with document virus scanning, payment flows,
+        lawyer matching and opinion workflows, Hangfire background jobs, OAuth
+        (Google/Facebook) with deauthorize & data-deletion callbacks, Telegram bot
+        integration, deployed on hardened VPS via GitHub Actions CI/CD.
+      </p>
+      <a class="goto" href="https://app.vettify.site">Visit app.vettify.site →</a>
+    </div>
+  </section>
+</Base>
