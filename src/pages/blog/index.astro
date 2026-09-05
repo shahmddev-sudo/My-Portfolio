@@ -4,6 +4,7 @@ import { getCollection } from 'astro:content';
 
 const posts = (await getCollection('blog', ({ data }) => !data.draft))
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
 ---
 <Base title="Blog — imranemon.tech" description="Posts on .NET, EF Core, DevOps, Kubernetes, and cloud infrastructure — drawn from real production work.">
   <h1 class="page-title">Blog</h1>
@@ -11,7 +12,7 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft))
     {posts.map((post) => (
       <li>
         <span class="p-date">{post.data.pubDate.toISOString().slice(0, 10)}</span>
-        <h3><a href={`/blog/${post.id}/`}>{post.data.title}</a></h3>
+        <h3><a href={`${base}blog/${post.id}/`}>{post.data.title}</a></h3>
         <p class="p-desc">{post.data.description}</p>
         {post.data.tags.map((t) => <span class="tag">{t}</span>)}
       </li>

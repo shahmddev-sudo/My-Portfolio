@@ -9,6 +9,7 @@ export async function getStaticPaths() {
 
 const { post } = Astro.props;
 const { Content } = await render(post);
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
 const path = `/blog/${post.id}/`;
 const url = `https://imranemon.tech${path}`;
 const jsonLd = {
@@ -31,7 +32,7 @@ const jsonLd = {
 <Base title={`${post.data.title} — imranemon.tech`} description={post.data.description} path={path}>
   <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   <article class="article">
-    <a class="back-link" href="/blog">← All posts</a>
+    <a class="back-link" href={`${base}blog`}>← All posts</a>
     <h1>{post.data.title}</h1>
     <p class="meta">
       {post.data.pubDate.toISOString().slice(0, 10)}

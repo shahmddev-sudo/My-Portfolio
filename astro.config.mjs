@@ -3,6 +3,8 @@ import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({
   site: 'https://imranemon.tech',
+  // Custom domain serves from site root. With no `base`, BASE_URL = '/' and the
+  // `${base}...` helpers in components resolve to root-absolute URLs.
   trailingSlash: 'never',
   integrations: [sitemap()],
   build: {
