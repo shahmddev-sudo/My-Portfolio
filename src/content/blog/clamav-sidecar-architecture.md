@@ -3,7 +3,7 @@ title: "Virus Scanning a 2-vCPU VPS: Why ClamAV Became a Docker Sidecar"
 description: "Running ClamAV for user-uploaded document scanning on a tiny VPS seemed impossible — 1GB RAM for the daemon, plus cold-start signature loads. The architecture that made it work: a ClamAV sidecar container speaking the clamd INSTREAM protocol."
 pubDate: 2026-09-08
 tags: [dotnet, docker, security, architecture]
-draft: true
+draft: false
 ---
 
 A legal case management SaaS accepts document uploads: PDFs, scanned IDs, evidence files. Whatever lands in object storage has to be virus-scanned before anyone opens it. The production host is a 2-vCPU, 3.8GB RAM Debian box already running the API, PostgreSQL, Redis, and a reverse proxy.

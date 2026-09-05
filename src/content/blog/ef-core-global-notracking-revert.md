@@ -3,7 +3,7 @@ title: "EF Core NoTracking Broke 50 Repository Methods, and I Reverted It"
 description: "A one-line 'performance optimization' — global AsNoTracking in EF Core — silently broke every fetch-then-mutate pattern in a 50-method repository layer. Here's the failure mode and why I rolled it back."
 pubDate: 2026-09-07
 tags: [dotnet, ef-core, postgresql]
-draft: true
+draft: false
 ---
 
 Every EF Core performance guide tells you the same thing: tracking has a cost, and for read-only queries you should call `AsNoTracking()`. Some guides even suggest making it the *default* at the `DbContext` level:

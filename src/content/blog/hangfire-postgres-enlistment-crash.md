@@ -3,7 +3,7 @@ title: "The Two-Second Crash: Debugging Hangfire.PostgreSql on a Fresh VPS"
 description: "Our API container kept dying ~2 seconds after boot on a freshly rebuilt VPS. Caddy 502s everywhere. The culprit was a transaction-enlistment mismatch between Hangfire.PostgreSql and Npgsql."
 pubDate: 2026-09-06
 tags: [dotnet, hangfire, postgresql, docker]
-draft: true
+draft: false
 ---
 
 We rebuilt a VPS from scratch — new OS image, same docker-compose file, same images. Everything should have been identical. Instead, the API container started dying roughly two seconds after boot, every single time. Caddy returned 502s on every `/api/*` route, and the logs showed the same cryptic crash.

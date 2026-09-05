@@ -3,7 +3,7 @@ title: "The Caddyfile That Committed Broken: File-Global Matchers Get Rejected"
 description: "A security fix that never actually deployed: a Caddy request matcher defined at file-global scope is invalid Caddyfile syntax, Caddy rejects the whole config, and the bootstrap silently skipped it. Here's the snippet pattern that fixes it."
 pubDate: 2026-09-09
 tags: [caddy, devops, security]
-draft: true
+draft: false
 ---
 
 The bug was public `/metrics` and `/hangfire` endpoints behind our reverse proxy. The fix was simple: a Caddy matcher that responds 404 for internal paths. It was written, reviewed, and committed.

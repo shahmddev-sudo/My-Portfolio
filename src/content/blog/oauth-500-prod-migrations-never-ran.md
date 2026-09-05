@@ -3,7 +3,7 @@ title: "When OAuth Login 500s in Prod but Not Locally: The Migration That Never 
 description: "A production 500 on every Google/Facebook social login, with a 42P01 'relation does not exist' error buried under classified rejection logs. Root cause: EF Core migrations were gated behind IsDevelopment() and never ran in production."
 pubDate: 2026-09-10
 tags: [dotnet, ef-core, postgresql, oauth]
-draft: true
+draft: false
 ---
 
 The report came in from production: every social login attempt — Google, Facebook — returned a 500. Locally, the same flow worked perfectly. The logs made it worse: the real error, a PostgreSQL `42P01: relation "audit_logs" does not exist`, was buried under generic "classified" rejection messages, so the 500 looked like an auth failure when it was a **missing table**.
