@@ -118,7 +118,7 @@ and it reads as `list.IsEmpty`. No parentheses, correct IntelliSense, discoverab
 
 **Extension blocks.** The `extension(...)` syntax groups everything you extend a type with in one declaration, instead of a scattered `static class` with a naming convention. The receiver is a real named parameter, so members can actually use it — which extension *methods* have always been able to do, but which extension properties cannot, since a property getter takes no parameters.
 
-**Static extension members.** This is the one that surprised me. You can extend the *type* rather than an instance of it:
+**Static extension members.** This is the one that surprised me. You can extend the *type* rather than an instance of it. One requirement worth stating, since the syntax invites the mistake: the `extension` block must live in a **top-level, non-generic `static` class**.
 
 ```csharp
 extension<TSource>(IEnumerable<TSource>)
@@ -143,7 +143,7 @@ extension<TSource>(IEnumerable<TSource>)
 }
 ```
 
-If you've ever wanted `+` to work on your own type, this is the language-sanctioned way. It used to be impossible without source generators or reflection hacks.
+If you've ever wanted `+` to work on a type you *don't own*, this is the language-sanctioned way. (To be precise about what's new: you could always declare `operator +` on your own types. What C# 14 adds is defining operators as extension members for types you don't control — previously that meant source generators or type wrappers.)
 
 **The honest caveat:** this is a library-author feature. If you write application code and consume libraries, your daily usage is unchanged. If you maintain something like a shared extensions library, this meaningfully improves the API surface you can offer.
 
@@ -186,7 +186,7 @@ If you're on C# 12 or older, the honest case is:
 2. Extension members — only if you own a library.
 3. Everything else — a reason to upgrade, not a reason to refactor.
 
-If you're already on C# 13, the C# 13 features are the higher-value ones: `params` collections (so `params ReadOnlySpan<T>` and no more array allocations at call sites), the new `Lock` type, `ref struct` implementing interfaces, and overload resolution priority. C# 14's `field` slots in alongside those comfortably.
+If you're already on C# 13, the C# 13 features are the higher-value ones: `params` collections (which let a `params` parameter be a collection type rather than an array — and with `params ReadOnlySpan<T>` the compiler can avoid allocating the intermediate array at the call site), the new `Lock` type, `ref struct` implementing interfaces, and overload resolution priority. C# 14's `field` slots in alongside those comfortably.
 
 ## The rule I use for language features
 

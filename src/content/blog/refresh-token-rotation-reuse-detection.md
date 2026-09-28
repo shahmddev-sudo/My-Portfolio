@@ -1,6 +1,6 @@
 ---
 title: "Why Our Refresh Tokens Rotate on Every Use (and How We Detect a Stolen One)"
-description: "A rotating refresh-token design with family-based reuse detection: what each field is for, why the hash algorithm differs from the one we use for passwords, and the exact sequence that traps a replayed token."
+description: "A rotating refresh-token design with family-based reuse detection: what each field is for, why the hash algorithm differs from the one we use for passwords, the __Host- cookie contract, and the exact sequence that traps a replayed token."
 pubDate: 2026-09-28
 tags: [dotnet, security, architecture]
 draft: false
@@ -23,20 +23,36 @@ The lifetimes are role-tiered, and this is deliberate:
 
 An admin session is the highest-value thing to steal, so it has the shortest window. Fifteen minutes is already generous; five is the number I'd pick for anything that can move money or change roles.
 
-Refresh tokens are **longer-lived and stored server-side**, in an entity I'll walk through field by field, because each field earns its place.
+Refresh tokens are **longer-lived and stored server-side**. Here is the actual entity, trimmed to the fields that matter for the design (there are more: `UserId`, `ConsumedAt`, `RevokedAt`, `ClientIp`, `UserAgent`):
 
 ```csharp
-public class RefreshToken
+public sealed class RefreshToken : EntityBase
 {
-    public string TokenHash { get; set; } = string.Empty;   // never the raw value
-    public Guid FamilyId { get; set; }                       // the rotation chain
-    public Guid AccessTokenJti { get; set; }                 // ties to a specific access token
-    public DateTimeOffset ExpiresAt { get; set; }            // absolute lifetime
-    public DateTimeOffset IdleExpiresAt { get; set; }        // idle timeout
-    public bool IsConsumed { get; set; }                     // replaced during rotation
-    public bool IsRevoked { get; set; }                      // killed by reuse detection
+    /// SHA-256 hash of the refresh token value. Raw token is never stored.
+    public string TokenHash { get; set; } = string.Empty;
+
+    /// All tokens in a family share this value; reuse of a consumed token
+    /// triggers revocation of the entire family.
+    public Guid FamilyId { get; set; }
+
+    /// The JTI of the access token issued alongside this refresh token.
+    /// Used to blocklist the access token on revocation.
+    public string AccessTokenJti { get; set; } = string.Empty;
+
+    public DateTimeOffset ExpiresAt { get; set; }          // absolute expiry of this token
+    public DateTimeOffset IdleExpiresAt { get; set; }      // idle timeout, updated each refresh
+    public DateTimeOffset AbsoluteExpiresAt { get; set; }  // session cap, from first token in family
+
+    public bool IsConsumed { get; set; }                   // rotated out normally
+    public bool IsRevoked { get; set; }                    // killed by reuse detection
+
+    public bool IsActive(DateTimeOffset now) =>
+        !IsConsumed && !IsRevoked
+        && ExpiresAt > now && IdleExpiresAt > now && AbsoluteExpiresAt > now;
 }
 ```
+
+Note `AccessTokenJti` is a **`string`**, not a `Guid` — it holds a JTI claim value, which is a string on the wire. And note there are **three** expiry fields, not two. That third one is the interesting design.
 
 ## Field by field: why each exists
 
@@ -57,19 +73,68 @@ The honest generalization: **match the primitive to the threat.** Slow KDF for w
 
 **`FamilyId` — the rotation chain.** Every login creates a new random UUID. Every refresh keeps the same `FamilyId`. This is the field that makes reuse detection possible, and I'll come back to it.
 
-**`AccessTokenJti`** ties a refresh token to the specific access token it issued. That's what lets us revoke a specific access token rather than the whole session.
+**`AccessTokenJti`** ties a refresh token to the specific access token it issued, which lets us blocklist that access token on revocation.
 
-**Two expiry fields.** `ExpiresAt` is the absolute lifetime of the token; `IdleExpiresAt` is an idle timeout refreshed on every use. You want both, for different reasons: the absolute cap bounds how long a session can *possibly* live even under continuous use, while the idle timeout kills abandoned sessions quickly. We use a 2-hour idle window and an absolute session cap.
+**Three expiry fields, and why three.** This is the part I'd defend hardest:
+
+- `ExpiresAt` — absolute expiry of this individual token.
+- `IdleExpiresAt` — idle timeout, updated on every refresh. Kills abandoned sessions quickly.
+- `AbsoluteExpiresAt` — **the session cap, measured from the first token in the family.** Every token in a family shares this value.
+
+That last one is what stops the classic rotation weakness: without it, a client that refreshes continuously can hold a session open indefinitely, because each individual token is short-lived but the *chain* never ends. `AbsoluteExpiresAt` bounds the chain, not the token. `IsActive` checks all three, so a session that has been alive too long dies even if every individual token is technically unexpired.
 
 **`IsConsumed` versus `IsRevoked`** — these are different states and conflating them is a bug. `IsConsumed` means "rotated out normally, replaced by a newer token." `IsRevoked` means "killed because something looked wrong." A consumed token is expected; a revoked one is an incident.
 
-## The cookie
+## The cookie, and the `__Host-` contract
 
-The refresh token is delivered as `vtf_refresh`: `HttpOnly`, `Secure`, `SameSite=Lax`, scoped to `Path=/api/v1/auth`.
+The cookie layer is centralized in a singleton called `AuthCookies`, and it's the single source of truth for names and options. There are four cookies: `vtf_access`, `vtf_refresh`, `vtf_csrf`, `vtf_session`.
 
-The `HttpOnly` flag is the load-bearing one: JavaScript cannot read the value, so an XSS that steals your access token still can't steal the refresh token. And scoping the path to the auth endpoints means the cookie isn't sent on ordinary API calls, shrinking the surface where it could leak.
+The part worth understanding is the production naming:
 
-Note `SameSite=Lax`, not `Strict`. `Strict` breaks the legitimate "click a link, land back in the app" flow; `Lax` still blocks cross-site POSTs, which is the CSRF vector that matters here.
+```csharp
+public string Refresh => _isDev ? RefreshName : $"__Host-{RefreshName}";
+public bool Secure => !_isDev;
+```
+
+In production the cookie is **`__Host-vtf_refresh`**. That prefix is a browser-enforced contract with three requirements: `Secure`-only, **host-only (no `Domain` attribute)**, and `Path=/`. The browser rejects a `__Host-` cookie that violates any of them.
+
+Why bother: **it defeats cookie-fixing from sibling subdomains.** Without it, a compromised sibling subdomain can set a `Domain=example.com` cookie that shadows yours. With `__Host-`, no other domain or path can plant a cookie with that name. In development the prefix is dropped, because browsers reject `__Host-` cookies over plain HTTP.
+
+The options builder is explicit about one thing:
+
+```csharp
+/// Cookie options consistent with the __Host- contract: Path=/ (required),
+/// no Domain (host-only).
+public CookieOptions Options(bool httpOnly, SameSiteMode sameSite, DateTimeOffset expires)
+    => new()
+    {
+        HttpOnly = httpOnly,
+        Secure = Secure,
+        SameSite = sameSite,
+        Path = "/",          // __Host- REQUIRES Path=/ — not a scoping choice
+        Expires = expires,
+    };
+```
+
+**`Path=/` is not a scoping decision we made.** It's a requirement of the `__Host-` contract. I had this wrong in the first draft of this post — I wrote that we scoped the cookie to the auth endpoints to shrink its exposure. That's a reasonable-sounding idea and it is incompatible with the prefix we use.
+
+The refresh cookie itself is set as:
+
+```csharp
+Response.Cookies.Append(
+    authCookies.Refresh,
+    result.RefreshToken!,
+    authCookies.Options(
+        httpOnly: true,
+        SameSiteMode.Strict,
+        DateTimeOffset.UtcNow + jwtSettings.RefreshTokenLifetime));
+```
+
+**`SameSiteMode.Strict`**, not `Lax`. That's a meaningful difference: `Strict` means the cookie is not sent on *any* cross-site navigation, including "click a link from an email and land in the app." For a refresh token that's the right trade — arriving from outside should mean authenticating afresh, not silently resuming a session. (The `vtf_session` marker cookie, which is deliberately JS-visible so the SPA can tell whether to attempt silent refresh, uses `Lax`.)
+
+`HttpOnly` is the other load-bearing flag: JavaScript cannot read the value, so an XSS that steals your access token still can't steal the refresh token.
+
+**One honest note on the lifetime.** The entity's XML comment says the absolute expiry is 7 days; the controller comment says `RefreshTokenLifetime` defaults to 10 days. Those disagree, and the truth is the configured value — the entity comment is stale. I'd rather flag that than pretend it's settled, and it's exactly the kind of drift a code comment can't protect you from.
 
 ## Rotation and the reuse trap
 
@@ -85,8 +150,14 @@ var tokens = await _db.Set<RefreshToken>()
     .ToListAsync(ct);
 
 foreach (var t in tokens)
-    // revoke every token in the chain
+{
+    t.IsRevoked = true;
+    t.RevokedAt = DateTimeOffset.UtcNow;
+}
+await _db.SaveChangesAsync(ct);
 ```
+
+(The first draft of this post showed that loop with a `// revoke every token in the chain` comment in place of the actual assignment. It's a small thing, but a snippet that omits the operative line is not a snippet.)
 
 Here's why this matters and why the family structure is the whole design. Suppose an attacker steals your refresh token on Monday. On Tuesday you refresh normally — your client gets a new token, the stolen one is consumed. On Wednesday the attacker tries the stolen token. It's already consumed, so the reuse check fires and **kills the family** — including the token you're currently using.
 

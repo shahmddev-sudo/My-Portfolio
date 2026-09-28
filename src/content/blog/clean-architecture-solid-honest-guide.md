@@ -347,7 +347,7 @@ That's a container framework removed from a Clean Architecture template for bein
 
 MediatR's DI registration is **transient by default**, and its own documentation flags this as a performance note recommending `Singleton` instead. That's an allocation-per-message cost in the dispatch layer of *every request*.
 
-And the reason source-generated mediators exist at all is that MediatR's runtime dispatch uses reflection. If you need Native AOT or you're cold-start-sensitive, reflection-based dispatch is a hard blocker, not a preference. **The mediator sits on the hot path of every request — its dispatch strategy is a performance decision, not a style choice.**
+And the reason source-generated mediators exist at all is that MediatR's runtime dispatch uses reflection. That's a real constraint under Native AOT and aggressive trimming, where reflected members can be trimmed away or need explicit preservation — not an absolute blocker, but a friction you have to plan around rather than a style preference. If you're cold-start-sensitive, dispatch cost is worth measuring.
 
 ## The MediatR licensing change you need to know about
 

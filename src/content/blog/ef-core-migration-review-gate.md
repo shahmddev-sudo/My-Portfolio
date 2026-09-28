@@ -26,7 +26,7 @@ The fix involved regenerating the snapshot against the correct provider, deletin
 public partial class AddPayoutRequests : Migration
 ```
 
-Both attributes, always. A migration class with one or neither compiles cleanly and is simply never applied — which is precisely how a "complete" chain can be missing a table.
+Both attributes, always. A migration class missing `[Migration]` is simply never discovered and never applied — which is precisely how a "complete" chain can be missing a table. (`[DbContext]` matters when you have more than one context; without it EF can't tell which model the migration belongs to.)
 
 **Now mandatory:** before merge, `dotnet ef database update` (or `MigrateAsync` in an integration test) must succeed against an empty Postgres. Snapshot drift is chain-hole evidence.
 
@@ -68,7 +68,7 @@ migrationBuilder.Sql(
 `suppressTransaction: true` is the part to understand before you reach for this: **the migration now runs outside a transaction**, which means
 
 - it cannot roll back atomically,
-- a failure can leave a half-built index behind (you drop it and retry),
+- a failure leaves an **invalid** index behind (Postgres marks it `INVALID`; it is unusable for query planning and must be dropped before you retry),
 - and the `__EFMigrationsHistory` row is only written if the script completes.
 
 Plan the retry-and-repair step *before* shipping one. I've seen this bite: a migration that partially succeeds and then doesn't record itself in history is a specific kind of mess.
