@@ -45,7 +45,7 @@ Microsoft's framing of Dependency Inversion is precise, and it contains the sent
 
 > "Applying the dependency inversion principle allows A to call methods on an abstraction that B implements, making it possible for A to call B at run time, but for B to depend on an interface controlled by A at compile time (thus, *inverting* the typical compile-time dependency). **At run time, the flow of program execution remains unchanged**, but the introduction of interfaces means that different implementations of these interfaces can easily be plugged in."
 
-At runtime, nothing changes. You pay nothing in performance. What you buy is a *compile-time guarantee that the centre of your system doesn't know what the outside is*. Testability, swappability, and the rest are downstream consequences of that one property — not separate benefits to be claimed.
+At runtime, the flow of program execution is unchanged — the cost of the inversion is paid in interface dispatch and a DI registration, not in meaningful runtime overhead. What you buy is a *compile-time guarantee that the centre of your system doesn't know what the outside is*. Testability, swappability, and the rest are downstream consequences of that one property — not separate benefits to be claimed.
 
 And the realistic test for whether the rule is doing anything is not "does the project have zero dependencies." It's **"can I unit-test this without a database."** Those are different, and the second is the one you actually want. A Domain project that references a logging abstraction is fine. A Domain project that references `Microsoft.EntityFrameworkCore` has quietly surrendered the benefit while technically still obeying the rule as people usually state it.
 
@@ -70,7 +70,13 @@ The layering decision has a *correctness* consequence, not just a bookkeeping on
 | `AsTracking` | 1,414.7 µs | 380.11 KB |
 | `AsNoTracking` | 993.3 µs | 232.89 KB |
 
-`AsNoTracking` is ~30% faster and allocates ~39% less. In a layered architecture where Application returns entities and Infrastructure owns the `DbContext`, **lazy loading is what silently keeps you in the `AsTracking` column** — and worse, it moves the *timing* of your database access to the Web project. If a Web controller touches a lazy navigation property, the query now fires from the Web layer, after or outside the scope you designed it to run in. That's a correctness bug caused by a layering decision, and it's a much stronger argument for DTOs at the boundary than "purity" ever was.
+`AsNoTracking` is ~30% faster and allocates ~39% less — but note what that benchmark actually measures: *tracking versus not tracking*. Tracking is what keeps your entities attached to the context, and it's the default. A separate axis is lazy loading, which fires additional round-trips as navigation properties are touched.
+
+In a layered architecture where Application returns entities and Infrastructure owns the `DbContext`, the two problems compound. Returning tracked entities means the Web layer can trigger queries at an arbitrary time — after, or outside, the scope you designed them to run in. That's a *correctness* bug caused by a *layering* decision, and it's a much stronger argument for DTOs at the boundary than "purity" ever was.
+
+Microsoft's own warning on the round-trips themselves:
+
+> "Note that since these methods aren't eager, they require additional roundtrips to the database, which is source of slowdown; depending on your specific scenario, it may be more efficient to just always load all Posts, rather than to execute the additional roundtrips and select the ones you need."
 
 Worth knowing: EF Core's **compiled models explicitly do not support lazy loading and change-tracking proxies.** So the lazy-loading-across-layers pattern and the startup-performance pattern are mutually exclusive. You get to pick.
 
@@ -211,7 +217,7 @@ public sealed class PaymentProcessor(
 
 The subtle win: `ChargeAsync` takes a `PaymentRequest`, not `(Order, decimal)`, so each provider only ever receives what it plausibly needs.
 
-**The honest counter-argument:** OCP is the most-abused of the five. A `switch` over an enum you own, exhaustively handled, is *correct* — the compiler enforces exhaustiveness for you. Abstracting it trades a compile-time check for a runtime `FirstOrDefault` that can return null.
+**The honest counter-argument:** OCP is the most-abused of the five. A `switch` over an enum you own, handled with a discard arm, is *correct* and cheap. What you get is a total match at compile time (an unhandled value falls to `_` rather than escaping), which is close to but not the same as exhaustiveness enforcement — C# won't warn you if you later add an enum member. Abstracting the switch trades that for a runtime `FirstOrDefault` that can return null.
 
 **My rule:** apply OCP when the set changes for reasons outside your code — payment rails, jurisdictions, tax regimes, notification channels. Keep the `switch` when you own the set and it genuinely never grows.
 
@@ -223,10 +229,11 @@ The Rectangle/Square example still works, but it's not the version that costs yo
 // Production implementation — the DbSet IS the query engine.
 public sealed class EfOrderStore(AppDbContext db) : IOrderStore
 {
-    public Task<IReadOnlyList<Order>> PendingAsync(CancellationToken ct)
-        => db.Orders.Where(o => o.Status == OrderStatus.Pending).ToListAsync(ct);
+    public async Task<IReadOnlyList<Order>> PendingAsync(CancellationToken ct)
+        => await db.Orders.Where(o => o.Status == OrderStatus.Pending).ToListAsync(ct);
 
-    public Task AddAsync(Order order, CancellationToken ct) => db.Orders.AddAsync(order, ct);
+    public async Task AddAsync(Order order, CancellationToken ct)
+        => await db.Orders.AddAsync(order, ct);
 }
 
 // Test double — compiles, passes the happy path, wrong.
@@ -330,7 +337,7 @@ public sealed class DocumentArchiver(IBlobStore blobs)
 
 ### The IWhatever trap
 
-An interface with exactly one implementation, no second implementer, no test double, and a name that is the class name with an `I` glued on. It provides **zero** testability benefit — you can't substitute something that has no substitute — while costing you the freedom to change the class's API. It also blocks extension methods on that type, which is a real ergonomic loss nobody mentions.
+An interface with exactly one implementation, no second implementer, no test double, and a name that is the class name with an `I` glued on. It provides **zero** testability benefit — you can't substitute something that has no substitute — while costing you the freedom to change the class's API.
 
 Where the trap comes from: conflating "depend on abstractions" with "abstract everything." DIP says *depend on the abstraction where the dependency is volatile*. A `UserRepository` interface is defensible — storage is volatile. An `IUserNameFormatter` wrapping one pure static function is not.
 
@@ -357,7 +364,7 @@ MediatR moved from `jbogard/MediatR` to `LuckyPennySoftware/MediatR`. **Version 
 
 RPL-1.5 is reciprocal: if you ship a product containing it, you must release that product's source under RPL-compatible terms. For a commercial product that means buying a license. The FAQ states it plainly — AutoMapper 15.0.0+ and MediatR 13.0.0+ require it; earlier versions remain open source and free.
 
-A **license key is now required at runtime**, resolved from explicit configuration, then `MEDIATR_LICENSE_KEY`, then `LUCKYPENNY_LICENSE_KEY`. Unlicensed use logs a warning rather than throwing, so it degrades quietly — worth knowing if you're watching logs.
+A **license key is expected in production**, resolved from explicit configuration, then `MEDIATR_LICENSE_KEY`, then `LUCKYPENNY_LICENSE_KEY`. The important nuance: **a missing key does not throw.** Unlicensed use logs a warning under the `LuckyPennySoftware.MediatR.License` category, and that warning is suppressible via a logging filter. So the failure mode is a quiet one — which is exactly the kind worth watching for in your logs, and worth fixing deliberately rather than discovering during an audit.
 
 The **Community tier is free below $5,000,000 USD annual revenue**, self-service. Licensing is team-based, not per-seat. Paid tiers exist above that; I'd link to [mediatr.io](https://mediatr.io) rather than quote figures, because the site displays prices under a bundle toggle and the per-tier numbers are easy to misread.
 

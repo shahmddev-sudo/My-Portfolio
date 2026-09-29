@@ -165,7 +165,13 @@ Both of you get logged out. The legitimate user is inconvenienced by one login; 
 
 Without `FamilyId`, you'd have to detect "this specific token was already used" and then somehow find and revoke its descendants. With the family, it's one query and one loop.
 
-**One consequence worth planning for:** concurrent tab refreshes each get a new token in the same family, and the stale one triggers reuse detection, logging out that browser. That's the designed trade — it means a genuine replay looks the same as a benign race. If you want to tolerate concurrent refreshes you need a grace window on consumption, and then the reuse detection is weaker. Pick one deliberately.
+**One consequence worth planning for — and it depends on how you consume.** Concurrent tab refreshes are the interesting case. There are two correct ways to handle it:
+
+*Atomic consumption* (compare-and-swap on the row, or a conditional `UPDATE ... WHERE IsConsumed = false` and check rows-affected) guarantees only one request can consume a given token. The second concurrent request fails the CAS, sees the token as consumed, and correctly concludes it's a reuse — logging the family out. That's the strict reading, and it's the safe default: **a replay and a race are indistinguishable, so you get the strict behaviour.**
+
+*A grace window* (accepting a consumed token for a few seconds after consumption, returning the same child token) tolerates benign races at the cost of a real replay window during that grace period. That's a deliberate trade, not a free lunch.
+
+Whichever you pick, the thing to get right is that the check-and-consume has to be **atomic**. Two requests that both read an unconsumed token before either marks it consumed will both succeed and *fork* the family — two parallel chains from one parent, neither of which triggers reuse detection. That silently defeats the entire mechanism. If your consume isn't atomic, the design is decorative.
 
 ## Access-token revocation
 
@@ -183,6 +189,6 @@ Two things sit alongside this and are worth having regardless of your token desi
 
 ## What I'd tell someone building this
 
-The core insight is small: **make the unit of revocation the session, not the token.** Everything else follows from that. `FamilyId` exists to give you a unit to revoke. `IsConsumed` exists to make a replay detectable. The two expiry fields exist because "active" and "abandoned" are different failures.
+The core insight is small: **make the unit of revocation the session, not the token.** Everything else follows from that. `FamilyId` exists to give you a unit to revoke. `IsConsumed` exists to make a replay detectable. The third expiry field exists because a rotation chain can otherwise live forever.
 
 And the design decision I'd defend hardest: short access-token TTLs aren't about being paranoid. They're about bounding the damage of the thing that's most likely to actually leak — a token in browser memory, or an access token in a log line. If your access token is 15 minutes of exposure at worst, most token-leak incidents are no longer incidents.

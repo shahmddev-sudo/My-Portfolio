@@ -16,7 +16,7 @@ I want to lead with this because it's the decision I'm most sure about, and it's
 
 We have a server-side feature flag service. The React app **has no corresponding flag store, no `useFeatureFlag` hook, and no flag state in any client cache.** Instead, the endpoint returns the flag state *in the response body*, and the component renders accordingly.
 
-Here's the actual pattern, from a component that shows a "what changed since your last visit" banner:
+Here are two separate fragments from the same feature. First, the shape the data arrives in and how the component decides to render — both copied from the real component:
 
 ```tsx
 interface ChangesSince {
@@ -29,12 +29,16 @@ interface ChangesSince {
 if (dismissed || !data?.flagEnabled || !data.changes?.length) return null;
 ```
 
-And a widget on the same page:
+And the query that produces it:
 
 ```tsx
 queryFn: () => apiFetch<{ cases: DigestCase[]; flagEnabled?: boolean }>(
   "/api/v1/cases/my-changes-digest?limit=10"),
+```
 
+with the same guard applied after the query resolves:
+
+```tsx
 if (isLoading || !data?.flagEnabled || !data.cases?.length) return null;
 ```
 
@@ -44,9 +48,13 @@ The backend decides, and its decision arrives as part of the payload. The compon
 
 1. **One source of truth.** There is exactly one place a flag can be wrong. In the system where the client fetches flags separately, you get a second place — and then a third, when you cache them.
 
-2. **No flag drift window.** A separate flag fetch has a race: the page renders before flags arrive, or flags go stale while a page is open. If the flag rides with the data, there is no window.
+2. **No flag-drift window for data-driven UI.** A separate flag fetch has a race: the page renders before flags arrive, or flags go stale while a page is open. If the flag rides with the data, the visibility decision is made in the same round trip.
 
-3. **The 404 case is already handled.** Our API returns 404 when a flag is off. A component that fetched flags *and* data has to handle "flag is off" as a state; a component that only fetches data handles it as an error path it already has.
+3. **The 404 case is already handled** — and this is where the two patterns diverge, so it's worth being explicit. We use *both*:
+   - **Endpoints you should never call when the feature is off return 404.** The client doesn't need to know anything; a failed call is the signal.
+   - **Endpoints whose whole purpose is that feature return visibility state in the body.** The digest endpoint above is the example: the banner is *about* "what changed", and when the feature is off the right answer is an empty digest plus `flagEnabled: false`, not a 404 — because the widget is still mounted and still asking.
+
+   The rule of thumb: **404 when absence means "this doesn't exist for you"; a `flagEnabled` field when the component needs to render something either way.**
 
 4. **Trivially testable.** You test the render by feeding a response with `flagEnabled: true` and one with `false`. No mocking of a flag provider.
 

@@ -36,7 +36,9 @@ One caveat worth knowing: this verifies chain *integrity*, not *populated* behav
 
 This rule exists because an unstated migration direction silently dropped schema.
 
-We now require every migration's `Up()` to end with an explicit comment stating which operations touch a populated table — add table, add nullable column, add index, type change, rename, drop — and whether `Up()` is purely additive. If there are drops, they must be identified as `Down()`-only or called out as executed by `MigrateAsync`.
+We now require every migration's `Up()` to end with an explicit comment stating which operations touch a populated table — add table, add nullable column, add index, type change, rename, drop — and whether `Up()` is purely additive. If there are drops, they must be identified as `Down()`-only or called out as executed inside `Up()`.
+
+Worth being precise about that distinction, because it comes up constantly: a forward `MigrateAsync()` runs each pending migration's `Up()`. `Down()` only runs when you explicitly migrate to an earlier target. So a drop that "lives in `Down()`" is a **rollback path**, not something a normal deploy will execute — which is exactly why the annotation has to say which of the two it is.
 
 The point isn't the comment. It's that the author has to answer the question out loud. A migration that says "this is additive only" is a claim a reviewer can check. A migration that says nothing about direction forces the reviewer to read DDL and infer intent.
 

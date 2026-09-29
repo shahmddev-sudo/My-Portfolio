@@ -44,7 +44,7 @@ This is where I'd focus if you're choosing a platform for .NET specifically.
 | Limit | Value |
 |---|---|
 | Function timeout (sync) | **900 s (15 min)** |
-| Async / event-source mapping | **5,400 s (90 min)** |
+| Async / event-source mapping | **5,400 s (90 min)** — applies to Lambda Managed Instances; standard on-demand functions stay at 15 min |
 | Payload, sync | **6 MB** request, 6 MB response |
 | Payload, async | **1 MB** |
 | Streamed response | 200 MB; 2 MB/s after the first 6 MB |
@@ -91,7 +91,7 @@ If you deploy a polling background worker (a Hangfire-style loop, or any queue c
 None of the three serverless platforms is a natural home for long-running scheduled .NET work.
 
 - **Cloud Run Jobs** is the least bad — 7-day ceiling, retries, checkpoints, and documented support for continuous background work and worker pools.
-- **Lambda's** 90-minute async path is workable for medium jobs, at the cost of a 1 MB payload and no ordering guarantee.
+- **Lambda's** async path is workable for medium jobs, at the cost of a 1 MB payload and no ordering guarantee. Note the 15-minute ceiling applies to standard on-demand functions; the 90-minute figure is for Lambda Managed Instances, so don't plan around it unless you're on that mode.
 - **Azure** forces you into Durable Functions because of the 230-second wall. That's an architectural detour, not a native fit.
 
 If you already run Hangfire in a Docker container, the honest answer is usually "keep the worker on containers."
@@ -139,7 +139,9 @@ GCP publishes the clearest schedule of the three, with the only documented free 
 
 Two honesty notes. The free 1 GiB is per destination, per month, per account — trivial for a real SaaS. And Google's pricing page states: **"Responses to requests count as data transfer out and are charged."** Your API response bytes are billable egress. In a read-heavy workload that is not a rounding error.
 
-**AWS's egress trap is architectural, not arithmetic.** A NAT Gateway bills for *every* byte traversing it. Self-hosted Docker plus a managed Postgres in a different AZ means your intra-VPC database traffic can silently become billable NAT traffic. **Co-locating RDS and your app in the same AZ is the highest-leverage cost decision in an AWS design.**
+**AWS's egress trap is architectural, and it takes two forms.** The first is the NAT Gateway, which bills for every byte that traverses it — so a misconfigured route table can bill internal traffic. The second, and usually larger, is **cross-AZ data transfer**: traffic that crosses an Availability Zone is charged, and you don't need a NAT gateway for that to happen. AWS routes intra-VPC traffic through the local route; it reaches a NAT gateway only when a route table actually sends it there.
+
+So the practical rule is the same, but for a different reason than people usually give: **co-locate your database and your compute in the same AZ**, because that's what avoids cross-AZ charges on the database path. If you can't, the alternative is a NAT gateway you control the routing to — not an accidental one.
 
 ## Cost philosophy — the actual differences
 

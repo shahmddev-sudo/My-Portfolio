@@ -59,6 +59,22 @@ public SqlConnection Connection
 
 Before this, that was a private field, a `??=` guard, and a lock if you cared about thread safety. Now the shape of the property and the shape of the code match.
 
+**One caveat, and it's a real one: `??=` on `field` is not thread-safe.** Two threads calling the getter concurrently can both see `null` and both construct a connection. The `field` keyword removes the boilerplate; it does not add synchronization. If the resource is expensive or must be created exactly once, keep the lock:
+
+```csharp
+private readonly Lock _gate = new();
+
+public SqlConnection Connection
+{
+    get
+    {
+        lock (_gate) return field ??= new SqlConnection(_connectionString);
+    }
+}
+```
+
+(If you're not on .NET 9+ where `System.Threading.Lock` exists, `lock (this)` is the older idiom — with the usual caveat that it publishes the lock to anyone holding the object.)
+
 ### Property change notification without ceremony
 
 If you hand-rolled `INotifyPropertyChanged` (or used a source generator), the equal-check is the part everyone writes:
@@ -121,25 +137,31 @@ and it reads as `list.IsEmpty`. No parentheses, correct IntelliSense, discoverab
 **Static extension members.** This is the one that surprised me. You can extend the *type* rather than an instance of it. One requirement worth stating, since the syntax invites the mistake: the `extension` block must live in a **top-level, non-generic `static` class**.
 
 ```csharp
-extension<TSource>(IEnumerable<TSource>)
+public static class EnumerableStatics
 {
-    public static IEnumerable<TSource> Identity => Enumerable.Empty<TSource>();
+    extension<TSource>(IEnumerable<TSource>)
+    {
+        public static IEnumerable<TSource> Identity => Enumerable.Empty<TSource>();
 
-    public static IEnumerable<TSource> Combine(
-        IEnumerable<TSource> first,
-        IEnumerable<TSource> second)
-        => first.Concat(second);
+        public static IEnumerable<TSource> Combine(
+            IEnumerable<TSource> first,
+            IEnumerable<TSource> second)
+            => first.Concat(second);
+    }
 }
 ```
 
 Called as `IEnumerable<int>.Identity`, and — because the receiver is a type — **user-defined operators can now be written as extension members**:
 
 ```csharp
-extension<TSource>(IEnumerable<TSource>)
+public static class EnumerableOperators
 {
-    public static IEnumerable<TSource> operator +(
-        IEnumerable<TSource> left, IEnumerable<TSource> right)
-        => left.Concat(right);
+    extension<TSource>(IEnumerable<TSource>)
+    {
+        public static IEnumerable<TSource> operator +(
+            IEnumerable<TSource> left, IEnumerable<TSource> right)
+            => left.Concat(right);
+    }
 }
 ```
 
@@ -191,3 +213,7 @@ If you're already on C# 13, the C# 13 features are the higher-value ones: `param
 ## The rule I use for language features
 
 A new language feature should be adopted when it's **faster to write than to not write**, not merely when it's available. `field` clears that bar. Extension members clear it for library authors and no one else. I wrote a small number of posts about EF Core and Postgres where the fix was a missing index or a stray `NoTracking` — the language version was never the variable. It's still nice when a language change removes a class of small papercuts, but it isn't where systems get fixed.
+
+---
+
+*Sources: [What's new in C# 14](https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14) · [The `field` keyword specification](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/proposals/csharp-14.0/field-keyword) · [The `extension` keyword](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/extension) · [What's new in C# 13](https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-13) · [Extension methods (programming guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/extension-methods) · [First-class span types specification](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/proposals/csharp-14.0/first-class-span-types)*
