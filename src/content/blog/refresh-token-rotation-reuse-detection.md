@@ -18,7 +18,7 @@ The lifetimes are role-tiered, and this is deliberate:
 
 | Role tier | Access TTL |
 |---|---|
-| SystemAdmin, CorporateAdmin | **5 minutes** |
+| Administrator, Manager | **5 minutes** |
 | Everyone else | **15 minutes** |
 
 An admin session is the highest-value thing to steal, so it has the shortest window. Fifteen minutes is already generous; five is the number I'd pick for anything that can move money or change roles.
@@ -87,7 +87,7 @@ That last one is what stops the classic rotation weakness: without it, a client 
 
 ## The cookie, and the `__Host-` contract
 
-The cookie layer is centralized in a singleton called `AuthCookies`, and it's the single source of truth for names and options. There are four cookies: `vtf_access`, `vtf_refresh`, `vtf_csrf`, `vtf_session`.
+The cookie layer is centralized in a singleton called `AuthCookies`, and it's the single source of truth for names and options. There are four cookies: `app_access`, `app_refresh`, `app_csrf`, `app_session`.
 
 The part worth understanding is the production naming:
 
@@ -96,7 +96,7 @@ public string Refresh => _isDev ? RefreshName : $"__Host-{RefreshName}";
 public bool Secure => !_isDev;
 ```
 
-In production the cookie is **`__Host-vtf_refresh`**. That prefix is a browser-enforced contract with three requirements: `Secure`-only, **host-only (no `Domain` attribute)**, and `Path=/`. The browser rejects a `__Host-` cookie that violates any of them.
+In production the cookie is **`__Host-app_refresh`**. That prefix is a browser-enforced contract with three requirements: `Secure`-only, **host-only (no `Domain` attribute)**, and `Path=/`. The browser rejects a `__Host-` cookie that violates any of them.
 
 Why bother: **it defeats cookie-fixing from sibling subdomains.** Without it, a compromised sibling subdomain can set a `Domain=example.com` cookie that shadows yours. With `__Host-`, no other domain or path can plant a cookie with that name. In development the prefix is dropped, because browsers reject `__Host-` cookies over plain HTTP.
 
@@ -130,7 +130,7 @@ Response.Cookies.Append(
         DateTimeOffset.UtcNow + jwtSettings.RefreshTokenLifetime));
 ```
 
-**`SameSiteMode.Strict`**, not `Lax`. That's a meaningful difference: `Strict` means the cookie is not sent on *any* cross-site navigation, including "click a link from an email and land in the app." For a refresh token that's the right trade — arriving from outside should mean authenticating afresh, not silently resuming a session. (The `vtf_session` marker cookie, which is deliberately JS-visible so the SPA can tell whether to attempt silent refresh, uses `Lax`.)
+**`SameSiteMode.Strict`**, not `Lax`. That's a meaningful difference: `Strict` means the cookie is not sent on *any* cross-site navigation, including "click a link from an email and land in the app." For a refresh token that's the right trade — arriving from outside should mean authenticating afresh, not silently resuming a session. (The `app_session` marker cookie, which is deliberately JS-visible so the SPA can tell whether to attempt silent refresh, uses `Lax`.)
 
 `HttpOnly` is the other load-bearing flag: JavaScript cannot read the value, so an XSS that steals your access token still can't steal the refresh token.
 

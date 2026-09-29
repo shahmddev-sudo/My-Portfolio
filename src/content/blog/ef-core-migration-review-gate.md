@@ -19,9 +19,7 @@ The symptom was infuriating: fresh databases built correctly in a way that didn'
 The fix involved regenerating the snapshot against the correct provider, deleting the broken migration, hand-writing the additive DDL, and verifying on a genuinely fresh Postgres. And there's a specific trap in hand-written migrations I want to state plainly:
 
 ```csharp
-// EF silently ignores a migration class missing EITHER of these attributes.
-// The class compiles. It never runs. No error, no warning.
-[DbContext(typeof(VettifyDbContext))]
+[DbContext(typeof(AppDbContext))]
 [Migration("20260916120000_AddPayoutRequests")]
 public partial class AddPayoutRequests : Migration
 ```
@@ -114,4 +112,4 @@ And the operational lesson that ties it together: **the migration chain is code 
 
 ---
 
-*Reference material from this project's knowledge base: the [EF migration review gate](https://github.com/IMRAN104/VettifyNG/blob/main/docs/kb/problems/migration-review-gate.md) checklist, the [SQLite LINQ translation decision](https://github.com/IMRAN104/VettifyNG/blob/main/docs/kb/decisions/2026-08-24-sqlite-linq-translation.md), and the schema drift audit that prompted both.*
+*The checklist described here is a distillation of real incidents: a reverted model snapshot that dropped a migration from the chain, and a repository query that failed to translate on one of two providers. Names and paths are generalised.*

@@ -6,9 +6,9 @@ tags: [dotnet, architecture, testing, feature-flags]
 draft: false
 ---
 
-Our repo has a rule that every agent must follow: if you add, remove, rename, or change the default of a feature flag, you must edit the flag inventory document *in the same commit*. A post-merge contract check fails the build otherwise.
+Every codebase ends up with a rule like this: if you add, remove, rename, or change the default of a feature flag, you must edit the flag inventory document *in the same commit*. A post-merge contract check fails the build otherwise.
 
-We didn't invent that rule because we like documentation. We invented it because the same five bug classes kept coming back, and each one is really a story about what a feature flag system does to the code around it.
+We did not write that rule because we like documentation. It exists because the same five bug classes kept coming back, and each one is really a story about what a feature flag system does to the code around it.
 
 This post is those five bugs, in the order I'd rank them by how much damage they did.
 
@@ -36,7 +36,7 @@ var factory = new WebApplicationFactory<Program>()
 **The audit you run before flipping any flag:**
 
 ```bash
-grep -lE "_FlagOff|_WhenFlagOff" tests/VettifyNG.Integration.Tests/Controllers/
+grep -lE "_FlagOff|_WhenFlagOff" tests/MyApp.Integration.Tests/Controllers/
 ```
 
 For every file that matches, confirm it either sets the flag explicitly or injects a stub. If a flag-off test doesn't state the flag state, it isn't a flag-off test — it's a test that passes conditionally.
@@ -95,7 +95,7 @@ This one is a testing anti-pattern I'd like to never see in any codebase again:
 [Test]
 public async Task Get_FlagOff_ReturnsEmptyList()
 {
-    var resp = await client.GetAsync($"/api/v1/cases/{id}/timeline");
+    var resp = await client.GetAsync($"/api/v1/cases/{id}/activity");
     if (resp.StatusCode != HttpStatusCode.OK) return;   // "flag off, we're fine"
     Assert.Empty(await resp.Content.ReadFromJsonAsync<List<TimelineItem>>());
 }

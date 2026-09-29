@@ -33,7 +33,7 @@ And the query that produces it:
 
 ```tsx
 queryFn: () => apiFetch<{ cases: DigestCase[]; flagEnabled?: boolean }>(
-  "/api/v1/cases/my-changes-digest?limit=10"),
+  "/api/v1/cases/updates-since-visit?limit=10"),
 ```
 
 with the same guard applied after the query resolves:
@@ -167,14 +167,14 @@ export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   if (loading) return <Spinner className="h-8 w-8" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (requiredRole && role !== requiredRole
-      && !(requiredRole === "CorporateUser" && role === "CorporateAdmin")) {
+      && !(requiredRole === "Member" && role === "Manager")) {
     return <AccessDenied />;
   }
   return <>{children}</>;
 }
 ```
 
-That `!(requiredRole === "CorporateUser" && role === "CorporateAdmin")` is the deliberate part: **a CorporateAdmin is allowed where a CorporateUser is required**, but not the reverse. It's an implicit role hierarchy encoded as one exception.
+That `!(requiredRole === "Member" && role === "Manager")` is the deliberate part: **a Manager is allowed where a Member is required**, but not the reverse. It's an implicit role hierarchy encoded as one exception.
 
 I include it because it's the shape of every real authorization rule — the default is "exact match," and the *exceptions* are the domain knowledge. If you find yourself with three or four of those `&&` clauses, it's time for a role hierarchy table rather than a growing boolean.
 
