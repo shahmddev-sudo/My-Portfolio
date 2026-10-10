@@ -1,12 +1,16 @@
 ---
 title: "The Exception Table That Fails Open"
-description: "A crash-handling middleware that looks rigorous but silently routes every unlisted error to a 500 — and why the default branch is the whole security posture. Plus the fail-safe/fail-secure distinction everyone conflates."
+description: "A crash-handling middleware that looks rigorous but silently routes every unlisted error to a 500 — and why the default branch is the whole security posture."
 pubDate: 2026-10-10
 tags: [security, dotnet, error-handling, architecture]
 draft: false
 ---
 
-Here is an exception middleware. It reads like careful engineering — a typed case per domain error, stable error codes, `ProblemDetails` responses:
+I reviewed an exception middleware that looked rigorous. Six typed cases, stable error codes, `ProblemDetails` responses.
+
+It was still returning 500s on six different malformed inputs to one endpoint. The cause was two lines of ordinary code a service elsewhere was throwing.
+
+## The middleware
 
 ```csharp
 // ErrorHandlingMiddleware.cs
@@ -26,24 +30,37 @@ var (status, errorCode, detail) = ex switch
 };
 ```
 
-I reviewed this file as part of a security sweep. Six of its cases were correct. It was still producing 500s on six different malformed inputs to a single endpoint, and the reason was two lines of ordinary code that a service somewhere else was throwing:
+## The two lines that broke it
 
 ```csharp
 // PaymentService.cs
-throw new InvalidOperationException("Payment proof can only be uploaded for cases in Payment_Pending state.");
+throw new InvalidOperationException(
+    "Payment proof can only be uploaded for cases in Payment_Pending state.");
 ```
 
-`InvalidOperationException` **is** in the switch. But the arm has a `when` guard, and the guard checks for a different phrase. So the arm doesn't match, the match falls to `_`, and the caller gets a 500 for what is plainly a state conflict that should have been a 409.
+Walk the match:
 
-That is the whole bug. Nothing exotic — just a new error message nobody added to a list.
+- `InvalidOperationException` **is** in the switch
+- But that arm has a `when` guard, and the guard looks for different words
+- No match → falls to `_` → **500**
 
-## The default branch *is* the security posture
+A state conflict that should have been a 409. Nothing exotic — just a new error message nobody added to a list.
 
-Every one of those listed arms is a decision someone made deliberately. The `_` arm is what happens to everything nobody thought about. In a switch that looks this thorough, the default branch is invisible during review — the eye goes to the six carefully-named cases and concludes the file is covered.
+## The default branch is the security posture
 
-That is the structural problem: **the table grows by accretion, but the exposure grows by everything absent from it.** A reviewer reading the switch is reading the list of known errors, and calling the design robust because the list is long. The list being long says nothing about the size of the complement.
+Every named arm is a decision someone made deliberately. The `_` arm is what happens to everything nobody thought about.
 
-The fix inverts the pressure. Make the unlisted case the one that is visibly wrong, and make the interesting status codes something you opt into:
+- A switch this thorough looks complete **during review**
+- The eye goes to the six tidy named cases and concludes the file is covered
+- The list being long says **nothing** about the size of the complement
+
+> **The table grows by accretion, but the exposure grows by everything absent from it.**
+
+A reviewer reading that switch is reading the list of *known* errors. Calling the design robust because the list is long is the mistake.
+
+### Make the unlisted case visibly wrong
+
+Same client behaviour, completely different behaviour for the next developer:
 
 ```csharp
 var (status, errorCode, detail) = ex switch
@@ -62,34 +79,43 @@ var (status, errorCode, detail) = ex switch
 };
 ```
 
-Same behaviour for the client, entirely different behaviour for the next developer. The `Payment_Pending` throw now lands in an arm that says, in the source, "this was never mapped" — which is a review question, and the right one.
+The `Payment_Pending` throw now lands in an arm that says, in the source: *"this was never mapped"*. That is a review question, and the right one.
 
-## Why I stopped using message matching
+## Why message matching is the real smell
 
-The `when ex.Message.Contains("already been resolved")` line is the actual smell. It makes correctness depend on prose, and prose is the part of a codebase nobody versions with any discipline:
+`ex.Message.Contains("already been resolved")` makes correctness depend on prose — and prose is the part of a codebase nobody versions with any discipline.
 
-- someone rewords the message to "has already been resolved" and the 409 silently becomes a 500
-- someone changes `Contains` to `StartsWith` for tidiness and a legitimate case stops matching
-- the message is localised, and the guard breaks for non-English callers
-- two different exceptions share a phrasing and you cannot tell which one fired
+| Breakage | Result |
+|---|---|
+| Reworded to "has already been resolved" | 409 silently becomes a 500 |
+| `Contains` → `StartsWith` for tidiness | A legitimate case stops matching |
+| Message is localised | The guard breaks for non-English callers |
+| Two exceptions share phrasing | You can't tell which one fired |
 
-Exceptions already carry their identity in their type. `throw new OfferAlreadyResolvedException(...)` is a compile-time fact; `Contains("already been resolved")` is a runtime guess. Prefer the first, and if you are stuck with the second, at least fail loudly when it misses — which is what the arm above does.
+Exceptions already carry identity in their **type**:
 
-## Fail-safe and fail-secure are not the same word
+- `throw new OfferAlreadyResolvedException(...)` — a compile-time fact
+- `Contains("already been resolved")` — a runtime guess
 
-The distinction gets collapsed constantly, and the collapse is itself a security bug, because the two point at opposite answers to "what should happen when the thing breaks?"
+Prefer the first. If you're stuck with the second, at least fail loudly when it misses.
 
-**Fail-safe** means the failure moves the system toward the safe *physical* state. A fail-safe lock **unlocks** the door when power is cut — it assumes loss of power is an emergency egress, so a person is never trapped inside.
+## Fail-safe vs fail-secure
 
-**Fail-secure** means the failure moves the system toward the safe *security* state. A fail-secure lock **locks** the door when power is cut — it assumes loss of power may be an attack, so nothing gets in.
+These get collapsed constantly, and the collapse is itself a bug — they point at **opposite** answers to "what should happen when it breaks?"
 
-Neither is universally correct, which is exactly why you cannot let the default decide for you. Choosing wrong in the physical direction gets someone trapped. Choosing wrong in the security direction lets an attacker walk in during a power cut. Both are real outcomes of the same ambiguity.
+- **Fail-safe** — failure moves to the safe *physical* state. A fail-safe lock **unlocks** when power is cut. Loss of power means emergency egress; nobody gets trapped inside.
+- **Fail-secure** — failure moves to the safe *security* state. A fail-secure lock **locks** when power is cut. Loss of power may be an attack; nothing gets in.
 
-The failure mode to avoid is the accidental default. A component whose behaviour under failure nobody decided will default to whichever way its control flow happens to fall — and that is decided by nobody, which means it is decided by accident.
+Neither is universally correct — which is exactly why you can't let the default decide:
 
-## The inverted condition is the one to memorise
+- Wrong toward physical → someone is trapped
+- Wrong toward security → an attacker walks in during a power cut
 
-The quiz attached to this material gives you this:
+> **A component whose behaviour under failure nobody decided will default to whichever way its control flow falls. And that is decided by nobody — which means it is decided by accident.**
+
+## The inverted condition
+
+From the course material:
 
 ```csharp
 bool permissionGranted = authorizationProcess(...);
@@ -104,7 +130,9 @@ else {
 }
 ```
 
-The comments say one thing, the branches do the other, and every attacker who finds this gets in on the failure path. Note the shape, because the real-world version almost never looks this silly:
+The comments say one thing. The branches do the other. Every attacker who finds this gets in on the failure path.
+
+### The real-world version never looks this silly
 
 ```csharp
 if (await _store.CanMutateAsync(caseId, ct))
@@ -113,9 +141,13 @@ if (await _store.CanMutateAsync(caseId, ct))
 }
 ```
 
-Nobody writes the comments that contradict the branch. But consider what happens when `CanMutateAsync` throws, times out, or the store returns something the compiler cannot type-check — the entity framework returns `0` instead of throwing on a failed query, so a lookup that finds nothing and a lookup that fails look identical from here.
+Nobody writes comments that contradict the branch. But consider:
 
-The defensive form makes the decision explicit at the point where it is made, and inverts the branch so the safe state is what happens when you don't get a clear answer:
+- `CanMutateAsync` throws, or times out
+- Or the store returns something the compiler can't type-check
+- Entity Framework returns `0` instead of throwing on a failed query — so **"found nothing" and "failed" look identical** from here
+
+### Deny by default
 
 ```csharp
 // Deny by default. Every path that does not positively establish permission
@@ -145,29 +177,76 @@ if (!allowed)
 }
 ```
 
-That is longer than the original and that is the point. The cost of a security decision being unassailable is a few lines; the cost of getting it wrong is an authentication bypass, and the two costs are not comparable.
+That is longer than the original — and that's the point. A few lines buy an unassailable decision; getting it wrong is an auth bypass. The costs aren't comparable.
 
-## The part people forget: crashing is public
+## Crashing is public
 
-When the process dies it hands the attacker a gift. A crash dumps a stack trace; a stack trace names your framework version, your namespaces, and your file layout. It distinguishes a `KeyNotFoundException` (you referenced a key that doesn't exist — a bug, likely guessable from context) from an `NpgsqlException` (you have a database, and the schema is doing something you didn't expect). That is reconnaissance, and it is free.
+A crash hands the attacker a gift.
 
-The other thing a crash leaks is *state*. A connection that never got closed, a session that never got invalidated, a token still valid because the logout path died before it ran. On a hard crash the process is gone, so the sockets close — but the token that was minted and never revoked is still out there, and whatever it was scoped to is still accessible to whoever holds it.
+**What a stack trace leaks**
 
-So the checklist after an unhandled failure is not cosmetic:
+- Framework version, namespaces, file layout
+- `KeyNotFoundException` → you reference a key that doesn't exist (a bug, likely guessable from context)
+- `NpgsqlException` → you have a database, and its schema does something unexpected
 
-- close connections and release pooled handles
-- clear sensitive values from memory and any cache that outlives the request
-- invalidate sessions and revoke tokens that were mid-issue
-- return an opaque message to the caller, keep the detail in the log, and correlate them with an id the caller can quote
+That is reconnaissance, and it is free.
 
-That last one is the pattern I would defend hardest. The client gets a correlation id and a generic message; the log gets the exception. The caller can report the id, and the reader of the log can find everything — without the error body becoming a data channel.
+**What a crash leaks in state**
 
-## What to do on Monday
+- A connection that never got closed
+- A session that never got invalidated
+- A token still valid because the logout path died mid-run
 
-Pick the endpoint in your codebase where a single failure produces the least useful response, and ask one question: *if this branch throws, what does the client see?* Trace it all the way to the HTTP response, not to the `catch` block. If the answer is "whatever the default happens to be," you have your next ticket.
+On a hard crash the process is gone, so sockets close. But a token that was **minted and never revoked** is still out there, and whatever it was scoped to is still accessible to whoever holds it.
 
-Then do this: **grep your error middleware for the `_ =>` arm and for `when ex.Message.Contains`, and write down how many exception types in your domain layer are not named anywhere in that file.** In the codebase this came from, the answer was a non-zero number, and every one of them was a 500 waiting for the right input. That number is your real error-handling coverage, and nobody tracks it anywhere.
+### The post-failure checklist
+
+- [ ] Close connections and release pooled handles
+- [ ] Clear sensitive values from memory and any cache outliving the request
+- [ ] Invalidate sessions; revoke tokens mid-issue
+- [ ] Return an opaque message to the caller; keep the detail in the log
+- [ ] Give the caller a correlation id it can quote
+
+That last one is the pattern I'd defend hardest:
+
+- Client gets a correlation id and a generic message
+- Log gets the full exception
+- The caller can report the id; the log reader finds everything
+- **The error body never becomes a data channel**
+
+## Do this on Monday
+
+Pick the endpoint where a single failure produces the least useful response. Ask:
+
+> *If this branch throws, what does the client see?*
+
+Trace it all the way to the HTTP response — **not** to the `catch` block.
+
+Then:
+
+```bash
+# Find the fallback and every prose-dependent guard
+rg -n '_ =>' --glob '*Middleware.cs'
+rg -n 'ex\.Message\.Contains' --glob '*Middleware.cs'
+```
+
+Count how many of your domain's exception types are **never named** in that file.
+
+- In the codebase this came from, the answer was a non-zero number
+- Every one of them was a 500 waiting for the right input
+- That number is your real error-handling coverage
+- **Nobody tracks it anywhere**
+
+## Recap
+
+- In an accretion-style switch, the **default branch is the posture** — the list of known errors tells you nothing about the unknown ones
+- Make the unlisted case visibly wrong; opt *into* status codes rather than falling into a plausible 500
+- Message matching makes correctness depend on prose. Use exception types
+- Fail-safe releases on power loss; fail-secure engages. Decide which, deliberately
+- Deny by default — an unavailable policy store is not an authorisation
+- Crashes leak stack traces *and* live credentials. Both are yours to clean up
+- Count the unmapped exception types. That number is your real coverage
 
 ---
 
-*The middleware excerpt is generalised from a real codebase — names and messages changed, structure and the bug preserved. The discussion of fail-safe versus fail-secure follows the standard distinction drawn from powered locking systems: fail-safe releases on power loss, fail-secure engages on power loss.*
+*The middleware excerpt is generalised from a real codebase — names and messages changed, structure and the bug preserved. The fail-safe/fail-secure distinction follows the standard one drawn from powered locking systems: fail-safe releases on power loss, fail-secure engages on power loss.*
